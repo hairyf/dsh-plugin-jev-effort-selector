@@ -40,7 +40,7 @@ dsh plugin --profile web add github:justhalfbit/dsh-plugin-jev-effort-selector
 `web` 是 `dsh web`（浏览器界面）对应的 profile 名；用其他 profile（如 `tui`）时把 `web` 换成对应名字即可。
 `dsh plugin add` 会自动把包写入 profile 依赖并追加到 `dsh.profile.bundles`，无需手工编辑。
 
-重启后在 **设置 → 插件 → Jev Effort Selector** 里填接口地址和密钥即可。
+重启后在 **设置 → 插件 → Jev Effort Selector** 里填 API 地址和 API 密钥即可。
 
 卸载：`dsh plugin --profile web remove dsh-plugin-jev-effort-selector`，重启生效；配置保留在 `~/.dsh/settings.yaml` 的 `jev-effort-selector` 段落，可手动删除。
 
@@ -62,20 +62,38 @@ host 半与界面无关；client 半（芯片）声明 `platform: "web"`，仅�
 | 字段 | 默认值 | 说明 |
 |------|--------|------|
 | `enabled` | `true` | 关掉后完全不干预，保持你手动选的等级 |
-| `apiUrl` | `https://zenmux.ai/api/v1/systemone` | Jev System One 接口地址 |
-| `apiKey` | `''` | 接口密钥；留空则读下面这个环境变量 |
-| `apiKeyEnv` | `JEV_API_KEY` | `apiKey` 为空时读取的环境变量名 |
+| `apiUrl` | `https://zenmux.ai/api/v1/systemone` | Jev System One API 地址 |
+| `apiKey` | `''` | 字面量密钥逃生口；标了 `role('secret')`，永不随设置外发。常规情况留空 |
+| `apiKeyEnv` | `JEV_API_KEY` | 凭据引用名，API 密钥以此名存放在凭据服务中 |
 | `model` | `jev-latest` | Jev 模型路由 |
 | `confidenceThreshold` | `0.6` | 低于该置信度时，在概率最高的两档里选更高的那档 |
 | `timeoutMs` | `5000` | 超时后放弃 Jev，本次调用沿用调用方已解析出的等级 |
 | `useContext` | `true` | 发送上下文信封，让「继续」这类追问继承话题深度 |
 | `levels` | `{}` | 每个模型的档位映射，键为 `provider/model` |
 
-密钥建议走环境变量，不要写进 `settings.yaml`：
+### API 密钥存在哪
+
+密钥**不进 `settings.yaml`**，走的是 DSH 的凭据服务，与官方「设置 → 模型」里自定义提供方的密钥完全同一条链路。设置卡片里的「API 密钥」框只做两件事：写入（`set`）和读状态（`describe`）——状态里只有「配没配、来自哪一层、能不能改」，**没有任何字段能装下密钥本身**，所以它永远不会回传到浏览器。
+
+解析顺序（由凭据服务本身分层，最信任的优先）：
+
+```
+启动时继承的进程环境        只读，最高优先级
+> ~/.dsh/.credentials.yaml  设置界面写入这里，权限 0600
+> <启动目录>/.env           只读兜底
+> ~/.dsh/.env               只读兜底
+```
+
+所以这三种方式都可以，任选其一：
 
 ```bash
+# 1. 设置界面里填（落到 ~/.dsh/.credentials.yaml）
+# 2. 导出到环境（优先级最高，界面会显示为只读）
 export JEV_API_KEY=sk-...
+# 3. 写进 ~/.dsh/.env
 ```
+
+上层被占用时（例如已 export 环境变量），界面会如实显示「该层只读，请在其来源处修改」，而不是接受一个写完也不生效的保存。
 
 ## 档位是怎么定的
 
@@ -89,7 +107,7 @@ claude-fable-5    low · medium · high · xhigh · max →  low / medium / high
 
 最高档**刻意不取列表里最强的那个**：模型若提供 `max` 或 `xhigh`，自动档位用上它意味着每条被判为复杂的消息都花最贵的代价。这两档留给你在 `levels` 里显式指定。
 
-不满意就在 `levels` 里指定，档位数量任意（2~5 档都行，描述文案会自动适配）：
+不满意就在 `levels` 里指定，2~5 档都行，描述文案会自动适配（每档都需要一句独立的判定描述，所以超过 5 档会自动收敛到首、尾与均匀分布的 5 档——否则多出来的档位只能共用同一句描述，Jev 根本分不开）：
 
 ```yaml
 jev-effort-selector:
@@ -103,7 +121,7 @@ jev-effort-selector:
       - high
 ```
 
-没在 `levels` 里出现的模型继续走自动推导。声明的等级如果模型不支持，那次判断会被丢弃，本次调用沿用调用方已解析出的等级。
+没在 `levels` 里出现的模型继续走自动推导。声明的等级会先和模型实际广播的等级求交集：写错或该模型不支持的档位被直接剔除，剩下不足 2 档就退回自动推导。这一步是必须的——底层对不支持的等级是**在发请求前直接拒绝**，不做钳制也不做别名，所以一个手误若不拦住，会让每轮的第一步都失败，而不是被忽略。
 
 ## 上下文信封
 

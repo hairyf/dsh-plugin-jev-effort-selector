@@ -73,19 +73,37 @@ Every field lives in the `jev-effort-selector` section of `~/.dsh/settings.yaml`
 |-------|---------|---------|
 | `enabled` | `true` | Turn off to keep whatever effort you selected by hand |
 | `apiUrl` | `https://zenmux.ai/api/v1/systemone` | Jev System One endpoint |
-| `apiKey` | `''` | Bearer token; empty means read the env var below |
-| `apiKeyEnv` | `JEV_API_KEY` | Env var consulted when `apiKey` is empty |
+| `apiKey` | `''` | Literal-token escape hatch, declared `role('secret')` so it never leaves the Host. Normally left empty |
+| `apiKeyEnv` | `JEV_API_KEY` | Credential reference the key is stored under |
 | `model` | `jev-latest` | Jev model route |
 | `confidenceThreshold` | `0.6` | Below this, take the stronger of the top two levels |
 | `timeoutMs` | `5000` | Give up on Jev; the call keeps the effort its caller resolved |
 | `useContext` | `true` | Send a context envelope so follow-ups inherit topic depth |
 | `levels` | `{}` | Per-model effort ladder, keyed by `provider/model` |
 
-Prefer the environment variable over writing the key into `settings.yaml`:
+### Where the API key lives
+
+The key never enters `settings.yaml`. It goes through the harness credentials service — the same path the stock **Settings → Models** page uses for a custom provider's key. The card's "API 密钥" box only writes (`set`) and reads status (`describe`); that status carries whether the reference resolves, which layer supplies it, and whether it is writable, and **has no slot a secret could ride in**, so the value never returns to the browser.
+
+Resolution layers, most trusted first:
+
+```
+inherited process environment   read-only, wins
+> ~/.dsh/.credentials.yaml      what the settings page writes, mode 0600
+> <invocation cwd>/.env         read-only fallback
+> ~/.dsh/.env                   read-only fallback
+```
+
+Any of these works:
 
 ```bash
+# 1. type it into the settings card (lands in ~/.dsh/.credentials.yaml)
+# 2. export it (highest precedence; the card then shows it as read-only)
 export JEV_API_KEY=sk-...
+# 3. put it in ~/.dsh/.env
 ```
+
+When a read-only layer already supplies the reference, the card says so instead of accepting a write that resolution would ignore.
 
 ## How the ladder is chosen
 
@@ -99,7 +117,7 @@ claude-fable-5    low · medium · high · xhigh · max        →  low / medium
 
 The top rung is deliberately **not** the strongest level advertised: on a route that offers `max` or `xhigh`, making it automatic would spend the most expensive setting on every message Jev finds complex. Those rungs stay available through `levels`.
 
-Override it in `levels` with any number of rungs (2–5; the criteria text adapts):
+Override it in `levels` with 2–5 rungs (the criteria text adapts). Each rung needs its own description, so a longer ladder is narrowed to its ends plus an even spread of five — rungs forced to share one description are ones Jev cannot tell apart:
 
 ```yaml
 jev-effort-selector:
@@ -113,7 +131,7 @@ jev-effort-selector:
       - high
 ```
 
-Models absent from `levels` keep the derived ladder. If a declared level is one the model does not support, that decision is discarded and the call keeps the effort its caller resolved.
+Models absent from `levels` keep the derived ladder. A configured ladder is intersected with what the route actually advertises: a typo or an unsupported rung is dropped, and fewer than two survivors fall back to derivation. That guard is required — the LLM seam rejects an unsupported effort before provider I/O, with no clamping and no aliasing, so one unchecked typo would fail every first step instead of being ignored.
 
 ## The context envelope
 
