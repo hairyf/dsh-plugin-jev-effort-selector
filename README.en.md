@@ -29,8 +29,8 @@ The decision appears as a chip beside the composer's model selector.
 - 🛡️ **Silent fallback**: a missing key, an unreachable endpoint, a timeout, a malformed answer,
   a level the model rejects — each leaves the call with the effort its caller resolved, without
   throwing or blocking
-- ⚙️ **Configuration owned by DSH**: a declarative schema registration; the harness renders the
-  form and persists it to `settings.yaml`, so the plugin carries no storage of its own
+- ⚙️ **Configuration in `settings.yaml`**: a settings card and the file itself are two doors onto
+  the same values; edits apply hot and the plugin carries no storage of its own
 - 🔀 **Session-scoped by construction**: decisions travel through a session projection, so the
   browser needs no polling and no RPC, and switching sessions never shows a stale value
 - 🎛️ **Custom ladders**: set `levels` per `provider/model` with anywhere from 2 to 5 rungs; the
@@ -156,7 +156,7 @@ jevEffort        session projection, read in the browser through
   projection     useProjection → the composer chip, session-scoped for free
 ```
 
-The settings form is not drawn by this plugin: the host half declares the schema, and the harness renders that section and persists it.
+The host half declares the settings schema and the settings document persists it; the browser half draws the card on `settings.plugin.item` under that same namespace.
 
 ## Known behaviour
 
