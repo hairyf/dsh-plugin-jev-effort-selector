@@ -1,8 +1,10 @@
 # dsh-plugin-jev-effort-selector
 
+[中文](README.md) | English
+
 Let [Jev](https://typesafe.ai) — a System One model — decide how hard your model should think about each message.
 
-DeepSeek Harness only lets you switch reasoning effort by hand: greetings burn `high`, and a gnarly refactor arrives while you are still on `low`. This plugin asks Jev once per turn, before the first model call, how much thinking the message deserves, then rewrites the effort for that call.
+[DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) only lets you switch reasoning effort by hand: greetings burn `high`, and a gnarly refactor arrives while you are still on `low`. This plugin asks Jev once per turn, before the first model call, how much thinking the message deserves, then rewrites the effort for that call.
 
 Jev classifies rather than generates: roughly 300 tokens and a few hundred milliseconds per decision.
 
@@ -14,13 +16,54 @@ design a distributed queue for 1M concurrent... → Jev High 100%
 
 The decision appears as a chip beside the composer's model selector.
 
+## Features
+
+- 🎚️ **Ladders derived per model**: reads the effort levels each model advertises and takes the
+  weakest rung, `medium`, and `high` — a model that cannot disable thinking is never handed
+  `off`, and `max` / `xhigh` are never spent automatically
+- 🧭 **Context envelope**: three lines and a fixed ~100 tokens (previous effort, previous
+  message, session title) so follow-ups like "continue" inherit their topic's depth; the
+  conversation history never leaves the machine
+- ⬆️ **Ties break upward**: below the confidence threshold, the stronger of the two most likely
+  rungs wins — over-thinking costs a few tokens, under-thinking costs the answer
+- 🛡️ **Silent fallback**: a missing key, an unreachable endpoint, a timeout, a malformed answer,
+  a level the model rejects — each leaves the call with the effort its caller resolved, without
+  throwing or blocking
+- ⚙️ **Configuration owned by DSH**: a declarative schema registration; the harness renders the
+  form and persists it to `settings.yaml`, so the plugin carries no storage of its own
+- 🔀 **Session-scoped by construction**: decisions travel through a session projection, so the
+  browser needs no polling and no RPC, and switching sessions never shows a stale value
+- 🎛️ **Custom ladders**: set `levels` per `provider/model` with anywhere from 2 to 5 rungs; the
+  criteria text adapts to the count
+
 ## Install
 
-```bash
-npm i dsh-plugin-jev-effort-selector
+Prerequisites: [DSH](https://github.com/deepseek-ai/deepseek-harness) installed and `pnpm` on PATH.
+
+```sh
+# Install from GitHub (no build step, so no allowBuilds entry is needed)
+dsh plugin --profile web add github:justhalfbit/dsh-plugin-jev-effort-selector
+
+# Restart dsh web to load it
 ```
 
-DSH discovers `dsh.bundle.patch` and inserts the row into the host composition. After a restart, open **Settings → Plugins → Jev Effort Selector** and fill in the endpoint and key.
+`web` is the profile behind `dsh web` (the browser UI); substitute your own profile name (`tui`, …) if you use another.
+`dsh plugin add` writes the package into the profile's dependencies and appends it to `dsh.profile.bundles` for you — no manual editing.
+
+After the restart, open **Settings → Plugins → Jev Effort Selector** and fill in the endpoint and key.
+
+Uninstall with `dsh plugin --profile web remove dsh-plugin-jev-effort-selector`, then restart. Your configuration stays in the `jev-effort-selector` section of `~/.dsh/settings.yaml` and can be deleted by hand.
+
+For local development: clone the repository, run `pnpm install`, then `dsh plugin --profile web add link:/absolute/path/dsh-plugin-jev-effort-selector`.
+
+### Interface support
+
+| Runtime | Decision core (intercept / classify / rewrite effort) | Composer chip |
+|---|---|---|
+| `dsh web` (browser GUI) | ✅ | ✅ |
+| `tui` / `headless` | ✅ fully available | ❌ decisions still apply, they are just not shown |
+
+The host half is interface-agnostic; the client half (the chip) declares `platform: "web"` and loads only in the browser UI.
 
 ## Configuration
 
@@ -46,12 +89,15 @@ export JEV_API_KEY=sk-...
 
 ## How the ladder is chosen
 
-Models advertise different effort levels — some cannot disable thinking, some have no `xhigh`. By default the plugin **reads what each model advertises** and takes the weakest, a middle rung, and the strongest:
+Models advertise different effort levels — some cannot disable thinking, some have no `xhigh`. By default the plugin **reads what each model advertises** and takes the weakest rung, `medium`, and `high`:
 
 ```
-claude-opus-4-6   off · low · medium · high · max   →  off / medium / max
-claude-fable-5    low · medium · high · xhigh · max →  low / medium / max
+claude-opus-4-6   off · low · medium · high · max          →  off / medium / high
+claude-opus-5     off · low · medium · high · xhigh · max  →  off / medium / high
+claude-fable-5    low · medium · high · xhigh · max        →  low / medium / high
 ```
+
+The top rung is deliberately **not** the strongest level advertised: on a route that offers `max` or `xhigh`, making it automatic would spend the most expensive setting on every message Jev finds complex. Those rungs stay available through `levels`.
 
 Override it in `levels` with any number of rungs (2–5; the criteria text adapts):
 

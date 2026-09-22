@@ -1,8 +1,10 @@
 # dsh-plugin-jev-effort-selector
 
+中文 | [English](README.en.md)
+
 让 [Jev](https://typesafe.ai) System One 模型替你决定每条消息该用多深的推理。
 
-DeepSeek Harness 的推理等级只能手动切换：聊天问候浪费了 high，复杂重构又忘了从 low 调上来。这个插件在每轮首次模型调用前问一次 Jev——一个专做分类、不做生成的小模型——由它判断这条消息值多少思考量，然后改写这次调用的推理等级。
+[DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) 的推理等级只能手动切换：聊天问候浪费了 high，复杂重构又忘了从 low 调上来。这个插件在每轮首次模型调用前问一次 Jev——一个专做分类、不做生成的小模型——由它判断这条消息值多少思考量，然后改写这次调用的推理等级。
 
 Jev 不是对话模型，单次判断约 300 token、几百毫秒，成本可以忽略。
 
@@ -14,13 +16,44 @@ Jev 不是对话模型，单次判断约 300 token、几百毫秒，成本可以
 
 判断结果显示在输入框右侧，紧挨模型选择器。
 
+## 特性
+
+- 🎚️ **按模型推导档位**：读取每个模型自己声明的推理等级，取最低档 / `medium` / `high`；不支持关闭思考的模型永远拿不到 `off`，`max`、`xhigh` 也不会被自动用掉
+- 🧭 **上下文信封**：固定约 100 token 的三行摘要（上一轮等级 + 上一条消息 + 会话标题），让「继续」这类追问继承话题深度，不发对话历史
+- ⬆️ **低置信度向上取**：概率低于阈值时在最可能的两档里选更高的——多想只费几个 token，少想可能直接答错
+- 🛡️ **失败静默降级**：缺密钥、网络不通、超时、返回异常、等级不被支持，任何一种都沿用调用方已解析出的等级，不报错、不阻塞
+- ⚙️ **配置由 DSH 托管**：schema 声明式注册，表单自动渲染、自动持久化到 `settings.yaml`，插件不自带存储
+- 🔀 **天然会话隔离**：决策经会话投影下发，浏览器端零轮询、零 RPC，切换会话不串值
+- 🎛️ **档位可自定义**：`levels` 里按 `provider/model` 指定，2~5 档任意，提示文案随档位数自动适配
+
 ## 安装
 
-```bash
-npm i dsh-plugin-jev-effort-selector
+前置：已安装 [DSH](https://github.com/deepseek-ai/deepseek-harness) 且 `pnpm` 在 PATH 上。
+
+```sh
+# 从 GitHub 安装（本插件零构建步骤，无需 allowBuilds 配置）
+dsh plugin --profile web add github:justhalfbit/dsh-plugin-jev-effort-selector
+
+# 重启 dsh web 生效
 ```
 
-DSH 会自动发现 `dsh.bundle.patch`，把插件行插入 host composition。重启后在 **设置 → 插件 → Jev Effort Selector** 里填接口地址和密钥即可。
+`web` 是 `dsh web`（浏览器界面）对应的 profile 名；用其他 profile（如 `tui`）时把 `web` 换成对应名字即可。
+`dsh plugin add` 会自动把包写入 profile 依赖并追加到 `dsh.profile.bundles`，无需手工编辑。
+
+重启后在 **设置 → 插件 → Jev Effort Selector** 里填接口地址和密钥即可。
+
+卸载：`dsh plugin --profile web remove dsh-plugin-jev-effort-selector`，重启生效；配置保留在 `~/.dsh/settings.yaml` 的 `jev-effort-selector` 段落，可手动删除。
+
+本地开发安装：克隆本仓库后 `pnpm install`，再 `dsh plugin --profile web add link:/绝对路径/dsh-plugin-jev-effort-selector`。
+
+### 界面支持
+
+| 运行形态 | 决策核心（拦截 / 判断 / 改写等级） | 输入框芯片 |
+|---|---|---|
+| `dsh web`（浏览器 GUI） | ✅ | ✅ |
+| `tui` / `headless` | ✅ 全部可用 | ❌ 决策照常生效，只是没有可视指示 |
+
+host 半与界面无关；client 半（芯片）声明 `platform: "web"`，仅在浏览器界面加载。
 
 ## 配置
 
@@ -46,12 +79,15 @@ export JEV_API_KEY=sk-...
 
 ## 档位是怎么定的
 
-不同模型支持的推理等级不一样——有的不支持关闭思考，有的没有 `xhigh`。插件默认**读取每个模型自己声明的等级列表**，从中取最低、中间、最高三档：
+不同模型支持的推理等级不一样——有的不支持关闭思考，有的没有 `xhigh`。插件默认**读取每个模型自己声明的等级列表**，取最低档、`medium`、`high` 三档：
 
 ```
-claude-opus-4-6   off · low · medium · high · max   →  off / medium / max
-claude-fable-5    low · medium · high · xhigh · max →  low / medium / max
+claude-opus-4-6   off · low · medium · high · max   →  off / medium / high
+claude-opus-5     off · low · medium · high · xhigh · max  →  off / medium / high
+claude-fable-5    low · medium · high · xhigh · max →  low / medium / high
 ```
+
+最高档**刻意不取列表里最强的那个**：模型若提供 `max` 或 `xhigh`，自动档位用上它意味着每条被判为复杂的消息都花最贵的代价。这两档留给你在 `levels` 里显式指定。
 
 不满意就在 `levels` 里指定，档位数量任意（2~5 档都行，描述文案会自动适配）：
 
