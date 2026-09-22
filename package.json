@@ -1,0 +1,39 @@
+{
+  "name": "dsh-plugin-jev-effort-selector",
+  "version": "0.1.0",
+  "description": "Let the Jev System One model pick the reasoning effort for every message, per model and per session.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/justhalfbit/dsh-plugin-jev-effort-selector.git"
+  },
+  "homepage": "https://github.com/justhalfbit/dsh-plugin-jev-effort-selector",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "jev",
+    "reasoning-effort",
+    "effort-selector"
+  ],
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.2",
+    "zod": "^4.4.3"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": []
+    }
+  }
+}

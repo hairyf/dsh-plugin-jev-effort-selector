@@ -1,0 +1,11 @@
+# dsh-plugin-jev-effort-selector bundle patch: one host-plane row.
+#
+# The row's node half (lib/index.js) registers the `jev-effort-selector`
+# settings namespace, the `jevEffort` session projection, and the
+# `agent/pre-step` + `agent/request` listeners that ask Jev which reasoning
+# effort the next model call should use. Its `dsh.client` declaration makes
+# the clientModules scanner serve lib/client.js to the browser, which renders
+# the decision chip beside the composer's model selector.
+- insert:
+    - id: jev-effort-selector
+      name: 'dsh-plugin-jev-effort-selector'
