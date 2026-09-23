@@ -24,7 +24,7 @@ The decision appears as a chip beside the composer's model selector.
 - 🧭 **Context envelope**: tells Jev the facts of the previous turn — the effort used, what the user said, how the assistant left off, how much work happened, whether it finished. About 500–800 tokens; never the conversation history
 - 🔁 **Two questions, one call**: how much depth this message needs, and whether it continues the previous task. The second is what separates "what time is it" from "go on" — equally short, but only one inherits the depth of work in flight
 - ⚓ **One hard rule**: work still in flight (the turn did not complete, or todos are in progress) plus a continuing message keeps at least the previous effort. Everything else is Jev's call — "what time is it" after a heavy refactor drops straight to `off`
-- 🎯 **One decision per turn**: every step of a turn runs at the same effort. Before, only step 1 carried Jev's pick and the rest ran at the default
+- 🎯 **One decision per turn**: every step of a turn, and every retry, runs at the same effort; Jev is asked once per turn
 - ✋ **Manual picks win**: change the effort in the selector and Jev sits out that turn
 - 💾 **Survives restarts**: the envelope's memory comes from the session log, not plugin memory. After a restart or a long idle, "go on" still knows what the previous turn was doing
 - ⬆️ **Ties break upward**: below the confidence threshold, the stronger of the two most likely rungs wins — over-thinking costs a few tokens, under-thinking may cost the answer
@@ -202,16 +202,17 @@ jevContext projection (host-only, never wired)   folds the previous turn: words,
 agent/pre-step (step 1 of each turn)   capture the current user message — it is not in the log yet at decision time
    ↓
 agent/request (step 1 of each turn)
-   ① selector effort ≠ last seen, same model → manual pick, Jev sits out
+   ① you touched the selector's effort (a new model/selection), same model → manual pick, Jev sits out
    ② resolve the levels this model advertises → ladder
    ③ build the envelope → ask Jev → two answers
    ④ apply the one rule → this turn's effort
    ⑤ rewrite LlmCallConfig.reasoningEffort and cache it for the turn
-agent/request (steps 2+)          reuse the turn's effort; Jev is not asked again
+agent/request (steps 2+, retries) reuse the turn's effort; Jev is not asked again
    ↓
-request/header                    the harness records the config this request went out with
+request/header                    the harness records the config this request went out with (on change only)
+user/message                      the harness commits the step's messages — after the decision
    ↓
-jevEffort projection (wired)      a trigger only: when it moves, the chip refetches
+jevTurn projection (wired)        moves exactly once per turn; a trigger only: when it moves, the chip refetches
    ↓
 chip ←── connection.rpc ──→ jevEffortSelector Remote (host memory: decision + per-session switch)
 ```
@@ -238,7 +239,8 @@ The host half declares the settings schema and the settings document persists it
 ## Known behaviour
 
 - With `compat.forceAdaptiveThinking: true` on the provider, `off` does not switch thinking off; it only drops to the minimum. That is gateway behaviour the plugin cannot override.
-- Manual-pick detection compares against the selector state seen at the last decision, held in memory; the first turn after a restart has no baseline and simply lets Jev decide.
+- **With Jev on, the model selector follows Jev's decisions.** The plugin changes only the outgoing LLM parameter, but the selector shows "the effort this session is running at", derived from the requests recorded in the log. So after switching Jev off, the session stays at Jev's last pick; pick one in the selector to change it. How it works: [DESIGN.en.md §6](DESIGN.en.md#the-model-selector-follows-jev).
+- Manual-pick detection compares against the `model/selection` count seen at the last decision, held in memory; the first turn after a restart has no baseline and simply lets Jev decide.
 - Switching models is not a manual effort pick: Jev decides afresh for the new route.
 
 ## License

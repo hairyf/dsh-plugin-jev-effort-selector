@@ -56,7 +56,7 @@ The DSH session log is an append-only event stream. A **projection** is a fold o
 record.rows
 ├── title:       { ver:1, seq:2126, val:"…" }
 ├── todos:       { ver:2, seq:2141, val:[…] }
-├── jevEffort:   { … }      ← this plugin, wired to the browser
+├── jevTurn:     { … }      ← this plugin, wired to the browser (the chip's refresh trigger)
 └── jevContext:  { … }      ← this plugin, host-only
 ```
 
@@ -191,13 +191,15 @@ Jev is asked only at step 1 of a turn. Earlier versions rewrote only step 1's co
 
 Now the step-1 decision is cached for the turn (`turnDecisions: sessionId → {turn, effort}`) and every later step reuses it. Measured on a 10-step turn: one `request/header` in the log — the harness appends one only when the config changes, so ten steps with no drift is exactly the evidence of consistency.
 
+**Retries reuse it too.** When an LLM request fails, the harness retries within the same step, and every attempt re-runs `agent/request`. Up to 0.3.1 a retry of step 1 asked Jev again: another call and 1–2 more seconds; possibly a different rung, so one step went out at two efforts; and since a retry appends no new `user/message`, the chip never refreshed and disagreed with what was used. Now any request in a turn that already has a decision reuses it, whatever the step or attempt.
+
 ---
 
 ## 6. Detecting a manual pick
 
-**Definition**: the selector's effort when the previous turn went out differs from the selector's effort when this turn goes out → the user picked by hand. Only the effort is compared; a model change goes to Jev as normal.
+**Definition**: you touched the effort in the selector (even re-picking what it already shows), and the model did not change → a manual pick. Jev sits out that turn; a model change goes to Jev as normal.
 
-**Why not compare against the log**: `request/header` records the value Jev **rewrote**. Selector says High, Jev sent Medium, the log says Medium; comparing that against the selector's High next turn is always "different", and Jev would be skipped forever.
+**Why not compare "the selector's value" with "the log's value"**: intuitively the selector holds your choice and the log holds what was sent, so comparing them tells whether you intervened. But the selector **holds no value of its own** — what it shows is itself derived from the log (next subsection). Once Jev sends Medium in place of Low, the selector shows Medium too. Both values come from the same place and cannot reveal whether you touched anything. Only the click itself leaves proof.
 
 **Implementation**: every selector change writes a `model/selection` event. The fold counts them (`selections`). At each decision the plugin remembers the count (`seenSelections`, in memory); a higher count next turn, with the route unchanged, means a manual pick.
 
@@ -205,7 +207,35 @@ Now the step-1 decision is cached for the turn (`turnDecisions: sessionId → {t
 
 **After a restart**: `seenSelections` is empty; the first turn has no baseline and goes to Jev.
 
-On a manual pick the plugin passes the config through untouched and records `reason: 'manual'`; the chip shows the picked effort with "manual pick, Jev sat out" on hover.
+On a manual pick the plugin passes the config through untouched and records `reason: 'manual'`; the chip shows the picked effort with "manual pick, Jev sat out" on hover. A manual pick governs that turn only; Jev decides again next turn.
+
+### The model selector follows Jev
+
+The plugin never touches the selector component; it changes one parameter of the outgoing LLM request. Yet with Jev on, the effort the selector shows follows Jev's decisions. Three things chain together:
+
+**① The rewritten parameter lands in the log.** For each request the harness records the config actually sent as a `request/header` (only when it differs from the last). The plugin rewrites before sending, so the recorded value is the rewritten one. The harness does not know who changed it.
+
+**② The selector is derived from the log.** Behind it is the harness's `modelSelection` projection, which reads two event types:
+
+```
+model/selection   you clicked the selector  →  pending  = your pick
+request/header    a request went out        →  lastUsed = what was sent
+                                               (clears pending when they match)
+
+selector shows = pending ?? lastUsed
+```
+
+**③ Put together:**
+
+```
+you pick Low                   → pending = Low                 selector shows Low
+next turn sends Low (manual)   → lastUsed = Low, pending clear  selector shows Low
+the turn after, Jev → Medium   → lastUsed = Medium             selector shows Medium
+```
+
+**Why the harness works this way**: the selector means not "what you want" but **"what this session is running at now"**. The next request starts from it (`dsh-agent-loop`: `seedConfig = requestProposal(persistedHeader)`); a session sticks to the config it last used, and that state persists with the log. The selector must show it, or what you see would disagree with what goes out next.
+
+**Consequence**: Jev's decision really becomes the session's current effort. So **after switching Jev off (globally or for the session), the session stays at Jev's last pick** rather than returning to your earlier manual choice; pick one in the selector to change it. This is the status quo by choice; alternatives are in [§12](#12-rejected-approaches).
 
 ---
 
@@ -228,7 +258,21 @@ Now the chip lives **exactly as long as the decision it describes**. The cost: a
 
 Hiding entirely when the global switch is off dates from 0.2.4: the problem then was a chip that kept saying "Thinking · High" with Jev off — restating the model selector beside it and implying Jev was still choosing.
 
-**Refresh trigger**: the chip subscribes to the `jevEffort` projection (a fold of `request/header`) but does not display its value. It uses it as a signal: a change means a request went out, so the chip fetches the latest decision from the host. No polling.
+**Refresh trigger**: the chip subscribes to the `jevTurn` projection but does not display its value. It uses it as a signal: when it moves, the chip fetches the latest decision from the host. No polling.
+
+`jevTurn` moves exactly once per turn: when the first `user/message` after `turn/start` is committed. That event was chosen because it is written **after the decision** — the harness commits the step's accepted messages only once `agent/request` has returned. So by the time the browser sees it move, this turn's decision is in memory; there is no race. Later `user/message` events in the same turn (runtime context, plugin notices, a mid-turn steer) leave it alone, so the chip fetches once per turn.
+
+The old trigger folded `request/header`, which looked like the obvious choice, but the harness writes that event **only when the config changes**. When Jev picks the same rung twice running, the second turn has no header, the chip does not refresh, and it keeps showing the previous turn's confidence and reason. And "go on after an interrupt, keep the effort" is precisely a same-rung case. Replaying a real test session: 9 of 35 turns had no `request/header` — every one of them would have shown a stale chip; with `jevTurn`, every turn triggers exactly once.
+
+**Tooltips** come in three forms, answering "who decided, and did the rule step in":
+
+| Case | Tooltip |
+|---|---|
+| Jev's own call (new topic or continuation alike) | decided by Jev |
+| The rule blocked a downgrade | continuing unfinished work, keeping the previous effort |
+| You picked by hand | manual pick, Jev sat out |
+
+The second appears only when the rule **actually changed the outcome** — Jev wanted to go lower and was stopped. If the envelope already led Jev to the same effort on its own, the rule did nothing and the first line shows. Jev's new-topic / continuation reading is still recorded in the decision (`relation`) but no longer shown: either way the effort is Jev's, and the distinction does not matter to the user.
 
 **Per-session isolation**: the chip sits in `conversation.input.right`, a session-scoped slot; host-side decisions are keyed by `sessionId`. Session A's chip shows session A's decision.
 
@@ -243,6 +287,7 @@ Clicking the chip opens a popover with one switch: "enable Jev for this session"
 - **Available only while the global switch is on.** The global switch is the master; a session override only makes sense beneath it, and "master off but one session secretly running" would confuse
 - With the session switched off the chip stays visible as a muted `Jev off` — otherwise there is nothing left to click
 - A restart clears memory and returns to the global setting
+- Switched off, the session stays at Jev's last pick rather than returning to your earlier manual choice (see [§6, the model selector follows Jev](#the-model-selector-follows-jev))
 
 **Switching sessions does not affect it.** `agent/disposed` fires only on process shutdown or harness unload; the source has no idle eviction; leave and come back and everything in memory is still there.
 
@@ -290,7 +335,7 @@ Conclusion: the data the chip needs is already in the built-in `request/header`;
 
 ## 11. Failure behaviour
 
-In every case below the plugin **passes the harness's config through untouched** — as if it did not exist for that turn, using whatever the selector currently says. No error, no stall, no retry:
+In every case below the plugin **passes the harness's config through untouched** — as if it did not exist for that turn, using the session's current effort (what the selector shows right now, usually Jev's last pick). No error, no stall, no retry:
 
 - missing key
 - network failure or timeout (`timeoutMs`)
@@ -321,6 +366,14 @@ Recorded so they are not walked again.
 **Chip shows "Jev" without confidence (the cheap option).** Possible, but when Jev times out and the caller's effort is used, labelling it "Jev" is wrong. Once the channel proved buildable, the complete version was the right one.
 
 **A `/jev on|off` slash command for the per-session switch.** The fallback if the SRC channel could not be built. Dropped once the spike succeeded.
+
+**`request/header` as the chip's refresh trigger.** See [§7](#7-the-chips-lifetime): written only on config changes, so the chip went stale whenever Jev picked the same rung twice. Present through 0.3.1.
+
+**Asking Jev again on a retry.** See [§5](#5-one-decision-per-turn): an extra call, possibly two efforts within one step, and the chip would not know.
+
+**Keep the selector showing your manual pick.** Done by having the plugin append a `model/selection` after every request, restoring your choice as pending. Rejected: the plugin would write to the session log (a type the harness knows, so nothing breaks, but it breaks the principle in [§10](#10-why-nothing-is-written-to-the-session-log)); it fakes a user action; the harness would re-apply it each request only for Jev to override it, a constant tug-of-war; manual-pick detection would need to tell the plugin's writes from yours; and a selector showing Low while Medium actually runs is itself a lie.
+
+**Return to your last manual pick when Jev is switched off.** Feasible: your last manual choice is in the log (`model/selection`) and survives restarts. Not adopted for now; the harness's native semantics stand.
 
 ---
 
