@@ -320,7 +320,9 @@ ctx.provide('jevEffortSelector', remote)
 connection.rpc.call('/api', 'jevEffortSelector/getSessionState', { args: { sessionId } })
 ```
 
-**代价**：参数校验退化为"按名字传 JSON"，没有 zod 那层类型检查。Host 端自己判类型。对两个方法（`getSessionState(sessionId)`、`setSessionEnabled(sessionId, enabled)`）来说够了。
+**代价**：参数校验退化为"按名字传 JSON"，没有 zod 那层类型检查。Host 端自己判类型。对三个方法（`getSessionState(sessionId)`、`setSessionEnabled(sessionId, enabled)`、`modelLadders()`）来说够了。
+
+`modelLadders()` 给设置卡片用：列出所有支持至少两档推理的模型、它们广播的档位，以及「自动」会用的档位。自动档位在 Host 端用决策时同一份 `deriveLadder` / `clampLadder` 算出，卡片上高亮的就是 Jev 实际会拿到的那几档，两边不会各算一套。
 
 这条路是先用一个最小探路插件验证通了，才决定不走兜底方案（斜杠命令 `/jev on|off`）的。
 
@@ -403,7 +405,6 @@ connection.rpc.call('/api', 'jevEffortSelector/getSessionState', { args: { sessi
 
 ## 13. 已知的未完成
 
-- **`levels` 编辑器**：设置卡片里按模型勾选档位。历史上判定可行（客户端能拿到 `model.reasoning.efforts`）但没实现，现在只能在 `settings.yaml` 里手改。
 - **Jev 调用的延迟**：每轮第 1 步前串行等 1.5–2.4 秒。理论上可以和请求组装并行，未做。
 - **全局关时的入口**：现在全局关就完全隐藏芯片，没有地方能看到/打开它。可以改成显示灰色 `Jev 关`，点击提示去设置。
 - **Jev 不适用的轮次**：没有用户文字的轮次、模型没有推理等级时，芯片仍显示上一次的决策（见 [§11](#不显示为失败的情况)）。后者可以直接隐藏芯片。

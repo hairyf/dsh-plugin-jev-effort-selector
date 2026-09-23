@@ -320,7 +320,9 @@ On the browser side, `ctx.remote.*` mounts generated namespaces only, but the ra
 connection.rpc.call('/api', 'jevEffortSelector/getSessionState', { args: { sessionId } })
 ```
 
-**Cost**: parameter validation degrades to "JSON by name", with no zod layer. The host checks types itself — enough for two methods (`getSessionState(sessionId)`, `setSessionEnabled(sessionId, enabled)`).
+**Cost**: parameter validation degrades to "JSON by name", with no zod layer. The host checks types itself — enough for three methods (`getSessionState(sessionId)`, `setSessionEnabled(sessionId, enabled)`, `modelLadders()`).
+
+`modelLadders()` serves the settings card: every model offering at least two reasoning levels, the levels it advertises, and the ladder "auto" would use. The auto ladder is computed on the host with the same `deriveLadder` / `clampLadder` a decision uses, so the rungs the card highlights are exactly the ones Jev would be offered — there is no second copy of the rule.
 
 This path was proven with a minimal spike plugin before the fallback plan (a `/jev on|off` slash command) was dropped.
 
@@ -403,7 +405,6 @@ Recorded so they are not walked again.
 
 ## 13. Known gaps
 
-- **A `levels` editor**: choosing rungs per model inside the settings card. Judged feasible (the client can read `model.reasoning.efforts`) but not built; `settings.yaml` is the only way today.
 - **Jev call latency**: 1.5–2.4 s serially ahead of every turn's first step. Could overlap with request assembly; not done.
 - **An entry point when the global switch is off**: today the chip disappears entirely, leaving nowhere to see or re-enable it. Could show a muted `Jev off` that points to Settings.
 - **Turns where Jev does not apply**: with no user text, or on a model without reasoning levels, the chip still shows the previous decision (see [§11](#cases-not-shown-as-failures)). The latter could simply hide the chip.

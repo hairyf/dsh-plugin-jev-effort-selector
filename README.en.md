@@ -33,7 +33,7 @@ The decision appears as a chip beside the composer's model selector.
 - 🏷️ **A chip that means something**: `Jev · High · 87%`, with the reason on hover. It lives only in the process — gone after a restart, back after the next decision, exactly as long as the decision it describes
 - 🔘 **Per-session switch**: click the chip to turn Jev off for this session alone; other sessions are untouched, and a restart returns to the global setting
 - 🔀 **Session-scoped by construction**: decisions, switch, and projections are all keyed by session id; the plugin writes nothing to the session log
-- 🎛️ **Custom ladders**: set `levels` per `provider/model` with anywhere from 2 to 5 rungs; the criteria text adapts to the count
+- 🎛️ **Custom ladders**: tick rungs per model in the card's "per-model ladders" section (or write `levels` directly), anywhere from 2 to 5; the criteria text adapts to the count
 
 ## Install
 
@@ -116,7 +116,9 @@ claude-fable-5    low · medium · high · xhigh · max        →  low / medium
 
 The top rung is deliberately **not** the strongest level advertised: on a route that offers `max` or `xhigh`, making it automatic would spend the most expensive setting on every message Jev finds complex. Those rungs stay available through `levels`.
 
-Override it in `levels` with 2–5 rungs (the criteria text adapts). Each rung needs its own description, so a longer ladder is narrowed to its ends plus an even spread of five — rungs forced to share one description are ones Jev cannot tell apart:
+Override it in the card's **per-model ladders** section: every model offering several levels is listed, each on "auto" with the derived rungs highlighted; switch one to "custom", tick 2–5 rungs, and the card's single Save writes them to `levels`; switching back to "auto" removes that model's entry. Entries the card does not recognise (a retired model, say) are kept as they are.
+
+You can also write `levels` in `settings.yaml` directly, with 2–5 rungs (the criteria text adapts). Each rung needs its own description, so a longer ladder is narrowed to its ends plus an even spread of five — rungs forced to share one description are ones Jev cannot tell apart:
 
 ```yaml
 jev-effort-selector:
