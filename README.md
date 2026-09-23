@@ -1,12 +1,12 @@
 # dsh-plugin-jev-effort-selector
 
-中文 | [English](README.en.md)
+中文 | [English](README.en.md) · [设计细节](DESIGN.md)
 
 让 [Jev](https://typesafe.ai) System One 模型替你决定每条消息该用多深的推理。
 
 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) 的推理等级只能手动切换：聊天问候浪费了 high，复杂重构又忘了从 low 调上来。这个插件在每轮首次模型调用前问一次 Jev——一个专做分类、不做生成的小模型——由它判断这条消息值多少思考量，然后改写这次调用的推理等级。
 
-Jev 不是对话模型，单次判断约 300 token、几百毫秒，成本可以忽略。
+Jev 不是对话模型，单次判断约 500–800 token、一两秒，成本可以忽略。
 
 ```
 你好                                    → Jev Off 100%
@@ -15,6 +15,8 @@ Jev 不是对话模型，单次判断约 300 token、几百毫秒，成本可以
 ```
 
 判断结果显示在输入框右侧，紧挨模型选择器。
+
+> 想知道每一处**为什么这样做**——什么落盘、信封为何是这个形状、那条规则怎么来的、哪些方案被否掉了——见 [设计细节](DESIGN.md)。
 
 ## 特性
 
@@ -183,6 +185,8 @@ Jev 返回概率分布。当最高概率低于 `confidenceThreshold` 时，插�
 
 多想一点只是多花几个 token，少想一点可能直接答错。
 
+→ 信封每一行的取舍、为什么当前消息不能来自投影、规则为什么不看文字：[DESIGN.md §3–4](DESIGN.md#3-信封给-jev-看什么)
+
 ## 失败时会怎样
 
 密钥缺失、网络不通、超时、返回格式不对、模型不支持选中的等级——任何一种情况都直接沿用调用方原本的推理等级，不报错、不阻塞对话。Jev 挂了你不会察觉，只是失去自动切换。
@@ -228,6 +232,8 @@ jevEffort 投影（下发浏览器）    只当触发器：它一变，芯片就
 Remote 是手写 JS，没有 typert 生成产物，靠 gateway 的 SRC fallback 被发现；浏览器端走 `connection.rpc.call`，因为 `ctx.remote.*` 只挂载生成的命名空间。参数校验因此退化为「按名字传 JSON」，Host 端自己判类型。
 
 Host 半边声明 settings schema、由设置文档持久化；浏览器半边在 `settings.plugin.item` 上按同一 namespace 注册设置卡片。
+
+→ 芯片为什么不持久、本会话开关的边界、SRC 通道是怎么造出来的、为什么不写会话日志：[DESIGN.md §7–10](DESIGN.md#7-芯片的生命周期)
 
 ## 已知行为
 

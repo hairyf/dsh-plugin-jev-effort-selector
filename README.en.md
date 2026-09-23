@@ -1,12 +1,12 @@
 # dsh-plugin-jev-effort-selector
 
-[中文](README.md) | English
+[中文](README.md) | English · [Design notes](DESIGN.en.md)
 
 Let [Jev](https://typesafe.ai) — a System One model — decide how hard your model should think about each message.
 
 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) only lets you switch reasoning effort by hand: greetings burn `high`, and a gnarly refactor arrives while you are still on `low`. This plugin asks Jev once per turn, before the first model call, how much thinking the message deserves, then rewrites the effort for that call.
 
-Jev classifies rather than generates: roughly 300 tokens and a few hundred milliseconds per decision.
+Jev classifies rather than generates: roughly 500–800 tokens and one to two seconds per decision.
 
 ```
 hello                                          → Jev Off 100%
@@ -15,6 +15,8 @@ design a distributed queue for 1M concurrent... → Jev High 100%
 ```
 
 The decision appears as a chip beside the composer's model selector.
+
+> For **why** each part is the way it is — what persists, why the envelope has this shape, where the one rule came from, which approaches were rejected — see the [design notes](DESIGN.en.md).
 
 ## Features
 
@@ -183,6 +185,8 @@ Jev returns a probability distribution. When the top probability is below `confi
 
 Over-thinking costs a few tokens; under-thinking may cost the answer.
 
+→ The trade-off behind each envelope line, why the current message cannot come from the projection, why the rule never reads the words: [DESIGN.en.md §3–4](DESIGN.en.md#3-the-envelope-what-jev-sees)
+
 ## When it fails
 
 A missing key, an unreachable endpoint, a timeout, a malformed answer, a level the model rejects — each one leaves the call with the effort its caller resolved. Nothing is thrown and nothing blocks the turn. If Jev goes down you lose the automatic switching and notice nothing else.
@@ -228,6 +232,8 @@ The `jevContext` state lands in `~/.dsh/storages/session_projcache`, including p
 The Remote is hand-written JavaScript with no generated typert artifact; the gateway's SRC fallback discovers it. The browser calls it through `connection.rpc.call`, because `ctx.remote.*` mounts generated namespaces only. Parameter checking therefore degrades to "JSON by name", and the host validates types itself.
 
 The host half declares the settings schema and the settings document persists it; the browser half registers the settings card on `settings.plugin.item` under the same namespace.
+
+→ Why the chip is not persisted, the per-session switch's boundaries, how the SRC channel was built, why nothing is written to the log: [DESIGN.en.md §7–10](DESIGN.en.md#7-the-chips-lifetime)
 
 ## Known behaviour
 
