@@ -19,12 +19,18 @@ Jev 不是对话模型，单次判断约 300 token、几百毫秒，成本可以
 ## 特性
 
 - 🎚️ **按模型推导档位**：读取每个模型自己声明的推理等级，取最低档 / `medium` / `high`；不支持关闭思考的模型永远拿不到 `off`，`max`、`xhigh` 也不会被自动用掉
-- 🧭 **上下文信封**：固定约 100 token 的三行摘要（上一轮等级 + 上一条消息 + 会话标题），让「继续」这类追问继承话题深度，不发对话历史
+- 🧭 **上下文信封**：把上一轮的事实讲给 Jev——用了什么等级、用户说了什么、助手说到哪、干了多少活、有没有干完。约 500–800 token，不发对话历史
+- 🔁 **一次问两件事**：这条消息该用几档，以及它是不是在延续上一个任务。后者是「几点了」和「继续」的分水岭——两句一样短，只有一句要继承正在干的活的深度
+- ⚓ **只有一条硬规则**：活没干完（上一轮非正常结束，或有进行中的待办）且这条消息在延续它，就不低于上一轮。其余一切听 Jev 的——复杂重构后问「几点了」照样直接到 `off`
+- 🎯 **一轮一决策**：一轮里的每一步都用同一个等级。之前只有第一步生效，后面的步骤跑在默认等级上
+- ✋ **尊重手动选择**：你在选择器里改了等级，这一轮 Jev 不插手
+- 💾 **重启不失忆**：信封的记忆来自会话日志，不靠插件内存。重启、闲置回收之后，「继续」照样知道上一轮在做什么
 - ⬆️ **低置信度向上取**：概率低于阈值时在最可能的两档里选更高的——多想只费几个 token，少想可能直接答错
 - 🛡️ **失败静默降级**：缺密钥、网络不通、超时、返回异常、等级不被支持，任何一种都沿用调用方已解析出的等级，不报错、不阻塞
 - ⚙️ **配置落 `settings.yaml`**：设置卡片与配置文件双入口，改动热生效，插件不自带存储
-- 🔀 **天然会话隔离**：芯片经会话投影下发，浏览器端零轮询、零 RPC，切换会话不串值；投影折的是 harness 内置的 `request/header`，插件不往会话日志写任何东西
-- 👻 **关掉就消失**：芯片只在插件启用时出现。它的数据源是每次请求都会发的 harness 事件，若不加判断，关掉后它会继续复述你手动选的等级——与右边的模型选择器完全重复，还暗示 Jev 仍在工作
+- 🏷️ **芯片说人话**：`Jev · High · 87%`，悬停看原因。它只活在进程里——重启后消失，下一轮决策后再出现，和它描述的那个决定同寿
+- 🔘 **本会话开关**：点芯片可以只关掉这个会话的 Jev，不影响别的会话；重启后回到全局设置
+- 🔀 **天然会话隔离**：决策、开关、投影全部按会话 id 键控，切换会话不串值；插件不往会话日志写任何东西
 - 🎛️ **档位可自定义**：`levels` 里按 `provider/model` 指定，2~5 档任意，提示文案随档位数自动适配
 
 ## 安装
@@ -126,23 +132,54 @@ jev-effort-selector:
 
 ## 上下文信封
 
-孤立地看，「继续」就是一句琐碎的话——Jev 会判成 `off`，哪怕上一轮正在设计分布式事务引擎。
+孤立地看，「继续」就是一句琐碎的话——Jev 会判成 `off`，哪怕上一轮正在设计分布式事务引擎。「扫」更甚：一个字，含义完全取决于助手刚才问了什么。
 
-所以 `useContext` 打开时，插件会额外发送三行上下文：
+所以 `useContext` 打开时，插件把**上一轮的事实**讲给 Jev：
 
 ```
-Previous reasoning effort: high
-Previous user message: 帮我设计一个分布式数据库的事务引擎，需要支持 MVCC...
-Session topic: 分布式事务引擎设计
+Context: an ongoing conversation with an AI coding assistant.
+Session topic: 排查代码报错原因
+Previous turn:
+- reasoning effort used: high
+- user said: "帮我看下为什么 dsh 启动报错"
+- earlier the user said: "动手吧"
+- assistant ended with: "…已修复两个会话。要我把剩下 22 个会话也全部扫一遍分帧吗？"
+- activity: 14 steps, 9 tool calls
+- previous turn outcome: completed
+- open tasks: 0 in progress
 ```
 
-这不是把对话历史发出去——只有上一次的决策、上一条消息的前 200 字、以及 DSH 本来就有的会话标题，固定约 100 token，不随对话增长。系统提示词、工具结果、代码全都不会离开本机。
+然后才是当前这条消息。不发对话历史、不发工具输出、不发代码。用户消息各截 300 字，助手结尾取 500 字，整体约 500–800 token。
 
-实测带上信封后，「继续」「好的，按这个方案来」这类追问能正确继承上一轮的深度。
+这些事实**全部来自 harness 自己的会话日志**（`user/message`、`assistant/message`、`step/start`、`tool/call`、`turn/end`、`request/header`，外加内置的 `todos` 投影）。插件用一个 host 侧投影把它们折出来，不保存任何东西——所以重启后第一轮，Jev 拿到的信封和重启前一模一样。
+
+## 两个问题，一条规则
+
+同一次调用里，Jev 回答两个问题：
+
+1. **该用几档**（在这个模型的档位里选）
+2. **这条消息和上一轮是什么关系**：`continues`（延续、追问、确认、回答助手的问题）还是 `new`（无关的新请求）
+
+插件拿到答案后只做一件事：
+
+> 如果是 `continues`，**且**上一轮的活还没干完，那就不低于上一轮。其他情况，Jev 说几档就几档。
+
+「活没干完」两个判据任一成立：上一轮不是正常结束（被打断、报错、超长度），或者待办里有进行中的任务。
+
+对照实测：
+
+| 上一轮 | 这一条 | 关系 | 活干完了？ | 结果 |
+|---|---|---|---|---|
+| High，复杂重构 | 几点了 | new | — | **Off** |
+| High，被打断 | 继续 | continues | 没 | **High** |
+| High，干完了 | 谢谢 | continues | 完了 | **Off** |
+| High，助手问「要扫吗」 | 扫 | continues（等级置信度仅 0.16） | 完了 | 低置信取强 → **High** |
+
+规则不看消息文字。「几点了」「现在啥时候」「what time」以及无穷多种说法，全部交给 Jev 分类；插件只看三个变量：Jev 的两个答案，加日志里的完成状态。
 
 ## 低置信度往高了选
 
-Jev 返回概率分布。当最高概率低于 `confidenceThreshold` 时，插件在概率最高的两档里选**更高**的那个。
+Jev 返回概率分布。当最高概率低于 `confidenceThreshold` 时，插件在概率最高的两档里选**更高**的那个；关系问题拿不准时按 `continues` 处理——它触发的锚定只会保深度，不会减。
 
 多想一点只是多花几个 token，少想一点可能直接答错。
 
@@ -153,27 +190,48 @@ Jev 返回概率分布。当最高概率低于 `confidenceThreshold` 时，插�
 ## 工作原理
 
 ```
-agent/pre-step   捕获用户消息原文
-       ↓
-agent/request    ① 解析当前模型支持的等级 → 得到档位
-  （仅 step 1）   ② 组装上下文信封
-                 ③ 调 Jev
-                 ④ 改写 LlmCallConfig.reasoningEffort
-       ↓
-request/header   harness 自己记下这次请求用的 config
-  （内置事件）     （其中就带着被改写的 reasoningEffort）
-       ↓
-jevEffort        会话投影折上面那个事件，浏览器端用 useProjection 读取
-   投影           → 输入框右侧的芯片，天然按会话隔离
+会话日志（harness 自己写的事件）
+   ├─ user/message · assistant/message · step/start · tool/call · turn/end · request/header
+   ↓
+jevContext 投影（host 侧，不下发浏览器）   折出上一轮：说了什么、做到哪、干了多少、干完没
+   ↓
+agent/request（每轮第 1 步）
+   ① 选择器等级 ≠ 上次所见 且模型未换 → 手动选择，跳过 Jev
+   ② 解析当前模型支持的等级 → 档位
+   ③ 组装信封 → 调 Jev → 两个答案
+   ④ 应用那条规则 → 本轮等级
+   ⑤ 改写 LlmCallConfig.reasoningEffort，并缓存到本轮
+agent/request（第 2+ 步）      直接复用本轮等级，不再调 Jev
+   ↓
+request/header                harness 记下这次请求实际用的 config
+   ↓
+jevEffort 投影（下发浏览器）    只当触发器：它一变，芯片就去拉最新决策
+   ↓
+芯片 ←── connection.rpc ──→ jevEffortSelector Remote（host 内存：决策 + 本会话开关）
 ```
 
-插件**不往会话日志里写任何东西**。持久化的读路径会拒绝加载含有 harness 词汇表（`KNOWN_SESSION_EVENT_TYPES`）之外事件类型的会话——除非 envelope 带 `ignorable: true`，而 `Session.append()` 根本没有设置该标记的入口。于是插件自定义的会话事件在写它的那个进程里一切正常，却会在下次冷读时让整个会话永久打不开。芯片需要的数据本来就在内置的 `request/header` 里。
+插件**不往会话日志里写任何东西**。持久化的读路径会拒绝加载含有 harness 词汇表（`KNOWN_SESSION_EVENT_TYPES`）之外事件类型的会话——除非 envelope 带 `ignorable: true`，而 `Session.append()` 根本没有设置该标记的入口。于是插件自定义的会话事件在写它的那个进程里一切正常，却会在下次冷读时让整个会话永久打不开。
+
+**什么落盘、什么不落盘：**
+
+| | 在哪 | 重启后 |
+|---|---|---|
+| 信封的记忆（上一轮） | 会话日志 → 投影 | ✅ 在 |
+| 芯片显示的决策（等级、置信度、原因） | host 内存 | ❌ 空，下一轮重现 |
+| 本会话开关 | host 内存 | ❌ 回到全局设置 |
+| 手动选择的判定基准 | host 内存 | ❌ 第一轮不判定 |
+
+`jevContext` 投影的状态会进 `~/.dsh/storages/session_projcache`，含用户消息与助手结尾的明文片段。它是日志的派生物，但多了一份副本。
+
+Remote 是手写 JS，没有 typert 生成产物，靠 gateway 的 SRC fallback 被发现；浏览器端走 `connection.rpc.call`，因为 `ctx.remote.*` 只挂载生成的命名空间。参数校验因此退化为「按名字传 JSON」，Host 端自己判类型。
 
 Host 半边声明 settings schema、由设置文档持久化；浏览器半边在 `settings.plugin.item` 上按同一 namespace 注册设置卡片。
 
 ## 已知行为
 
-如果你的 provider 配了 `compat.forceAdaptiveThinking: true`，`off` 档不会真正关闭思考，只会降到最低——这是 gateway 的行为，不是插件能覆盖的。
+- 如果你的 provider 配了 `compat.forceAdaptiveThinking: true`，`off` 档不会真正关闭思考，只会降到最低——这是 gateway 的行为，不是插件能覆盖的。
+- 手动选择的判定依赖「上次决策时看到的选择器状态」，它在内存里；重启后的第一轮没有基准，会正常走 Jev。
+- 切换模型不算手动改等级：新模型由 Jev 重新决策。
 
 ## 许可
 

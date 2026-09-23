@@ -18,29 +18,20 @@ The decision appears as a chip beside the composer's model selector.
 
 ## Features
 
-- 🎚️ **Ladders derived per model**: reads the effort levels each model advertises and takes the
-  weakest rung, `medium`, and `high` — a model that cannot disable thinking is never handed
-  `off`, and `max` / `xhigh` are never spent automatically
-- 🧭 **Context envelope**: three lines and a fixed ~100 tokens (previous effort, previous
-  message, session title) so follow-ups like "continue" inherit their topic's depth; the
-  conversation history never leaves the machine
-- ⬆️ **Ties break upward**: below the confidence threshold, the stronger of the two most likely
-  rungs wins — over-thinking costs a few tokens, under-thinking costs the answer
-- 🛡️ **Silent fallback**: a missing key, an unreachable endpoint, a timeout, a malformed answer,
-  a level the model rejects — each leaves the call with the effort its caller resolved, without
-  throwing or blocking
-- ⚙️ **Configuration in `settings.yaml`**: a settings card and the file itself are two doors onto
-  the same values; edits apply hot and the plugin carries no storage of its own
-- 🔀 **Session-scoped by construction**: the chip travels through a session projection, so the
-  browser needs no polling and no RPC, and switching sessions never shows a stale value; the
-  projection folds the harness's built-in `request/header`, and the plugin writes nothing to the
-  session log
-- 👻 **Gone when switched off**: the chip appears only while the plugin is enabled. Its source is a
-  harness event that fires for every request, so without that check it would keep restating the
-  effort you picked by hand — duplicating the model selector beside it and implying Jev is still
-  choosing
-- 🎛️ **Custom ladders**: set `levels` per `provider/model` with anywhere from 2 to 5 rungs; the
-  criteria text adapts to the count
+- 🎚️ **Per-model ladders**: reads the reasoning levels each model advertises and takes the lowest / `medium` / `high`; a model that cannot switch thinking off never receives `off`, and `max` / `xhigh` are never spent automatically
+- 🧭 **Context envelope**: tells Jev the facts of the previous turn — the effort used, what the user said, how the assistant left off, how much work happened, whether it finished. About 500–800 tokens; never the conversation history
+- 🔁 **Two questions, one call**: how much depth this message needs, and whether it continues the previous task. The second is what separates "what time is it" from "go on" — equally short, but only one inherits the depth of work in flight
+- ⚓ **One hard rule**: work still in flight (the turn did not complete, or todos are in progress) plus a continuing message keeps at least the previous effort. Everything else is Jev's call — "what time is it" after a heavy refactor drops straight to `off`
+- 🎯 **One decision per turn**: every step of a turn runs at the same effort. Before, only step 1 carried Jev's pick and the rest ran at the default
+- ✋ **Manual picks win**: change the effort in the selector and Jev sits out that turn
+- 💾 **Survives restarts**: the envelope's memory comes from the session log, not plugin memory. After a restart or a long idle, "go on" still knows what the previous turn was doing
+- ⬆️ **Ties break upward**: below the confidence threshold, the stronger of the two most likely rungs wins — over-thinking costs a few tokens, under-thinking may cost the answer
+- 🛡️ **Silent degradation**: a missing key, network failure, timeout, malformed reply, or unsupported level all leave the caller's effort untouched, without an error or a stall
+- ⚙️ **Settings in `settings.yaml`**: card and file are two doors to the same values; edits apply hot and the plugin carries no storage of its own
+- 🏷️ **A chip that means something**: `Jev · High · 87%`, with the reason on hover. It lives only in the process — gone after a restart, back after the next decision, exactly as long as the decision it describes
+- 🔘 **Per-session switch**: click the chip to turn Jev off for this session alone; other sessions are untouched, and a restart returns to the global setting
+- 🔀 **Session-scoped by construction**: decisions, switch, and projections are all keyed by session id; the plugin writes nothing to the session log
+- 🎛️ **Custom ladders**: set `levels` per `provider/model` with anywhere from 2 to 5 rungs; the criteria text adapts to the count
 
 ## Install
 
@@ -141,25 +132,56 @@ Models absent from `levels` keep the derived ladder. A configured ladder is inte
 
 ## The context envelope
 
-Read in isolation, "continue" is a trivial message — Jev calls it `off`, even when the previous turn was designing a distributed transaction engine.
+Read in isolation, "go on" is a trivial message — Jev calls it `off`, even when the previous turn was designing a distributed transaction engine. "Scan" is worse: one word whose meaning depends entirely on what the assistant just asked.
 
-So when `useContext` is on, three extra lines travel with the message:
+So with `useContext` on, the plugin tells Jev **the facts of the previous turn**:
 
 ```
-Previous reasoning effort: high
-Previous user message: design a transaction engine with MVCC and two-phase commit...
-Session topic: distributed transaction engine
+Context: an ongoing conversation with an AI coding assistant.
+Session topic: Diagnose the startup error
+Previous turn:
+- reasoning effort used: high
+- user said: "why does dsh fail to start?"
+- earlier the user said: "go ahead"
+- assistant ended with: "…fixed both sessions. Want me to scan the remaining 22 for the same framing fault?"
+- activity: 14 steps, 9 tool calls
+- previous turn outcome: completed
+- open tasks: 0 in progress
 ```
 
-This is not the conversation history: only the last decision, the first 200 characters of the previous message, and the session title DSH already maintains — a fixed ~100 tokens that does not grow with the conversation. System prompts, tool results, and code never leave the machine.
+then the current message. No conversation history, no tool output, no code. User messages are cut at 300 characters, the assistant's tail at 500; the whole envelope lands around 500–800 tokens.
 
-In practice the envelope is what keeps "continue" and "ok, go with that plan" at the depth their topic earned.
+Every fact comes **from the harness's own session log** (`user/message`, `assistant/message`, `step/start`, `tool/call`, `turn/end`, `request/header`, plus the built-in `todos` projection). A host-side projection folds them; the plugin stores nothing — so the first turn after a restart sends the very same envelope it would have sent before.
+
+## Two questions, one rule
+
+In one call, Jev answers two questions:
+
+1. **How much effort** (one rung of this model's ladder)
+2. **How this message relates to the previous turn**: `continues` (follows up, confirms, answers a question the assistant asked) or `new` (an unrelated request)
+
+The plugin then does exactly one thing with the answers:
+
+> If it `continues`, **and** the previous turn's work is not finished, never go below the previous effort. Otherwise, Jev's rung stands.
+
+"Not finished" is either of: the previous turn did not end normally (aborted, error, max tokens), or the todo list has items in progress.
+
+Measured:
+
+| Previous turn | Message | Relation | Finished? | Result |
+|---|---|---|---|---|
+| High, heavy refactor | what time is it | new | — | **Off** |
+| High, interrupted | go on | continues | no | **High** |
+| High, finished | thanks | continues | yes | **Off** |
+| High, assistant asked "scan the rest?" | scan | continues (effort confidence 0.16) | yes | tie breaks upward → **High** |
+
+The rule never looks at the words. "What time is it", "what's the time", and every other phrasing go to Jev; the plugin reads three variables — Jev's two answers and the log's completion state.
 
 ## Ties break upward
 
-Jev returns a probability distribution. When the top probability falls below `confidenceThreshold`, the plugin takes the **stronger** of the two most likely rungs.
+Jev returns a probability distribution. When the top probability is below `confidenceThreshold`, the plugin takes the **stronger** of the two most likely rungs. An uncertain relation is read as `continues` — the anchoring it can trigger only ever keeps depth, never removes it.
 
-Over-thinking a simple message costs a few tokens. Under-thinking a hard one costs the answer.
+Over-thinking costs a few tokens; under-thinking may cost the answer.
 
 ## When it fails
 
@@ -168,31 +190,48 @@ A missing key, an unreachable endpoint, a timeout, a malformed answer, a level t
 ## How it works
 
 ```
-agent/pre-step   capture the user's message text
-       ↓
-agent/request    ① resolve the model's advertised levels → ladder
-  (step 1 only)  ② assemble the context envelope
-                 ③ ask Jev
-                 ④ rewrite LlmCallConfig.reasoningEffort
-       ↓
-request/header   the harness records the config this request went out with
-  (built-in)     (carrying the rewritten reasoningEffort)
-       ↓
-jevEffort        session projection folding that event, read in the browser
-  projection     through useProjection → the composer chip, session-scoped
+session log (events the harness writes itself)
+   ├─ user/message · assistant/message · step/start · tool/call · turn/end · request/header
+   ↓
+jevContext projection (host-only, never wired)   folds the previous turn: words, tail, activity, outcome
+   ↓
+agent/request (step 1 of each turn)
+   ① selector effort ≠ last seen, same model → manual pick, Jev sits out
+   ② resolve the levels this model advertises → ladder
+   ③ build the envelope → ask Jev → two answers
+   ④ apply the one rule → this turn's effort
+   ⑤ rewrite LlmCallConfig.reasoningEffort and cache it for the turn
+agent/request (steps 2+)          reuse the turn's effort; Jev is not asked again
+   ↓
+request/header                    the harness records the config this request went out with
+   ↓
+jevEffort projection (wired)      a trigger only: when it moves, the chip refetches
+   ↓
+chip ←── connection.rpc ──→ jevEffortSelector Remote (host memory: decision + per-session switch)
 ```
 
-The plugin appends **nothing** to the session log. The persistence read path refuses to load a
-session containing an event type outside the harness's own `KNOWN_SESSION_EVENT_TYPES` unless the
-envelope carries `ignorable: true` — and `Session.append()` offers no way to set that marker. A
-plugin-owned event type therefore behaves perfectly in the process that wrote it and permanently
-bricks the log on the next cold read. The value the chip needs is already in `request/header`.
+The plugin **writes nothing to the session log**. The persistence read path refuses to load a session containing an event type outside the harness vocabulary (`KNOWN_SESSION_EVENT_TYPES`) unless the envelope carries `ignorable: true` — and `Session.append()` has no way to set that marker. A plugin-owned event type loads fine in the process that wrote it and bricks the log on the next cold read.
 
-The host half declares the settings schema and the settings document persists it; the browser half draws the card on `settings.plugin.item` under that same namespace.
+**What persists and what does not:**
+
+| | Where | After a restart |
+|---|---|---|
+| Envelope memory (previous turn) | session log → projection | ✅ present |
+| The chip's decision (effort, confidence, reason) | host memory | ❌ empty until the next decision |
+| Per-session switch | host memory | ❌ back to the global setting |
+| Manual-pick baseline | host memory | ❌ first turn does not detect |
+
+The `jevContext` state lands in `~/.dsh/storages/session_projcache`, including plain-text fragments of user messages and the assistant's tail. It is derived from the log, but it is one more copy.
+
+The Remote is hand-written JavaScript with no generated typert artifact; the gateway's SRC fallback discovers it. The browser calls it through `connection.rpc.call`, because `ctx.remote.*` mounts generated namespaces only. Parameter checking therefore degrades to "JSON by name", and the host validates types itself.
+
+The host half declares the settings schema and the settings document persists it; the browser half registers the settings card on `settings.plugin.item` under the same namespace.
 
 ## Known behaviour
 
-If your provider sets `compat.forceAdaptiveThinking: true`, the `off` rung will not truly disable thinking — it only drops to the minimum. That is the gateway's behaviour, not something the plugin can override.
+- With `compat.forceAdaptiveThinking: true` on the provider, `off` does not switch thinking off; it only drops to the minimum. That is gateway behaviour the plugin cannot override.
+- Manual-pick detection compares against the selector state seen at the last decision, held in memory; the first turn after a restart has no baseline and simply lets Jev decide.
+- Switching models is not a manual effort pick: Jev decides afresh for the new route.
 
 ## License
 
