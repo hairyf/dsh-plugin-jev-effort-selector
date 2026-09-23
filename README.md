@@ -23,7 +23,7 @@ Jev 不是对话模型，单次判断约 300 token、几百毫秒，成本可以
 - ⬆️ **低置信度向上取**：概率低于阈值时在最可能的两档里选更高的——多想只费几个 token，少想可能直接答错
 - 🛡️ **失败静默降级**：缺密钥、网络不通、超时、返回异常、等级不被支持，任何一种都沿用调用方已解析出的等级，不报错、不阻塞
 - ⚙️ **配置落 `settings.yaml`**：设置卡片与配置文件双入口，改动热生效，插件不自带存储
-- 🔀 **天然会话隔离**：决策经会话投影下发，浏览器端零轮询、零 RPC，切换会话不串值
+- 🔀 **天然会话隔离**：芯片经会话投影下发，浏览器端零轮询、零 RPC，切换会话不串值；投影折的是 harness 内置的 `request/header`，插件不往会话日志写任何东西
 - 🎛️ **档位可自定义**：`levels` 里按 `provider/model` 指定，2~5 档任意，提示文案随档位数自动适配
 
 ## 安装
@@ -158,11 +158,15 @@ agent/request    ① 解析当前模型支持的等级 → 得到档位
   （仅 step 1）   ② 组装上下文信封
                  ③ 调 Jev
                  ④ 改写 LlmCallConfig.reasoningEffort
-                 ⑤ 追加 jev/effort 会话事件
        ↓
-jevEffort        会话投影，浏览器端用 useProjection 读取
+request/header   harness 自己记下这次请求用的 config
+  （内置事件）     （其中就带着被改写的 reasoningEffort）
+       ↓
+jevEffort        会话投影折上面那个事件，浏览器端用 useProjection 读取
    投影           → 输入框右侧的芯片，天然按会话隔离
 ```
+
+插件**不往会话日志里写任何东西**。持久化的读路径会拒绝加载含有 harness 词汇表（`KNOWN_SESSION_EVENT_TYPES`）之外事件类型的会话——除非 envelope 带 `ignorable: true`，而 `Session.append()` 根本没有设置该标记的入口。于是插件自定义的会话事件在写它的那个进程里一切正常，却会在下次冷读时让整个会话永久打不开。芯片需要的数据本来就在内置的 `request/header` 里。
 
 Host 半边声明 settings schema、由设置文档持久化；浏览器半边在 `settings.plugin.item` 上按同一 namespace 注册设置卡片。
 

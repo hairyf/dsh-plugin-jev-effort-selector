@@ -31,8 +31,10 @@ The decision appears as a chip beside the composer's model selector.
   throwing or blocking
 - ⚙️ **Configuration in `settings.yaml`**: a settings card and the file itself are two doors onto
   the same values; edits apply hot and the plugin carries no storage of its own
-- 🔀 **Session-scoped by construction**: decisions travel through a session projection, so the
-  browser needs no polling and no RPC, and switching sessions never shows a stale value
+- 🔀 **Session-scoped by construction**: the chip travels through a session projection, so the
+  browser needs no polling and no RPC, and switching sessions never shows a stale value; the
+  projection folds the harness's built-in `request/header`, and the plugin writes nothing to the
+  session log
 - 🎛️ **Custom ladders**: set `levels` per `provider/model` with anywhere from 2 to 5 rungs; the
   criteria text adapts to the count
 
@@ -168,11 +170,19 @@ agent/request    ① resolve the model's advertised levels → ladder
   (step 1 only)  ② assemble the context envelope
                  ③ ask Jev
                  ④ rewrite LlmCallConfig.reasoningEffort
-                 ⑤ append a jev/effort session event
        ↓
-jevEffort        session projection, read in the browser through
-  projection     useProjection → the composer chip, session-scoped for free
+request/header   the harness records the config this request went out with
+  (built-in)     (carrying the rewritten reasoningEffort)
+       ↓
+jevEffort        session projection folding that event, read in the browser
+  projection     through useProjection → the composer chip, session-scoped
 ```
+
+The plugin appends **nothing** to the session log. The persistence read path refuses to load a
+session containing an event type outside the harness's own `KNOWN_SESSION_EVENT_TYPES` unless the
+envelope carries `ignorable: true` — and `Session.append()` offers no way to set that marker. A
+plugin-owned event type therefore behaves perfectly in the process that wrote it and permanently
+bricks the log on the next cold read. The value the chip needs is already in `request/header`.
 
 The host half declares the settings schema and the settings document persists it; the browser half draws the card on `settings.plugin.item` under that same namespace.
 
