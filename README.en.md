@@ -195,6 +195,8 @@ session log (events the harness writes itself)
    ↓
 jevContext projection (host-only, never wired)   folds the previous turn: words, tail, activity, outcome
    ↓
+agent/pre-step (step 1 of each turn)   capture the current user message — it is not in the log yet at decision time
+   ↓
 agent/request (step 1 of each turn)
    ① selector effort ≠ last seen, same model → manual pick, Jev sits out
    ② resolve the levels this model advertises → ladder
