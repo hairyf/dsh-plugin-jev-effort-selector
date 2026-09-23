@@ -35,6 +35,10 @@ The decision appears as a chip beside the composer's model selector.
   browser needs no polling and no RPC, and switching sessions never shows a stale value; the
   projection folds the harness's built-in `request/header`, and the plugin writes nothing to the
   session log
+- 👻 **Gone when switched off**: the chip appears only while the plugin is enabled. Its source is a
+  harness event that fires for every request, so without that check it would keep restating the
+  effort you picked by hand — duplicating the model selector beside it and implying Jev is still
+  choosing
 - 🎛️ **Custom ladders**: set `levels` per `provider/model` with anywhere from 2 to 5 rungs; the
   criteria text adapts to the count
 
