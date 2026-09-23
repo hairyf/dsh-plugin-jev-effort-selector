@@ -29,7 +29,8 @@ Jev 不是对话模型，单次判断约 500–800 token、一两秒，成本可
 - 💾 **重启不失忆**：信封的记忆来自会话日志，不靠插件内存。重启、闲置回收之后，「继续」照样知道上一轮在做什么
 - ⬆️ **低置信度向上取**：概率低于阈值时在最可能的两档里选更高的——多想只费几个 token，少想可能直接答错
 - 🛡️ **失败静默降级**：缺密钥、网络不通、超时、返回异常、等级不被支持，任何一种都沿用调用方已解析出的等级，不报错、不阻塞
-- ⚙️ **配置落 `settings.yaml`**：设置卡片与配置文件双入口，改动热生效，插件不自带存储
+- ⚙️ **配置由 DSH 保存**：设置界面与配置文件双入口，改动热生效，插件不自带存储（DSH 0.1.5 存在 `settings.yaml`，0.1.7 起存在 profile 的 `cordis.patch.yml`）
+- 🔁 **新旧 DSH 通用**：同一个版本同时支持 DSH 0.1.5 与 0.1.7
 - 🏷️ **芯片说人话**：`Jev · High · 87%`，悬停看原因。它只活在进程里——重启后消失，下一轮决策后再出现，和它描述的那个决定同寿
 - 🔘 **本会话开关**：点芯片可以只关掉这个会话的 Jev，不影响别的会话；重启后回到全局设置
 - 🔀 **天然会话隔离**：决策、开关、投影全部按会话 id 键控，切换会话不串值；插件不往会话日志写任何东西
@@ -49,9 +50,18 @@ dsh plugin --profile web add github:justhalfbit/dsh-plugin-jev-effort-selector
 `web` 是 `dsh web`（浏览器界面）对应的 profile 名；用其他 profile（如 `tui`）时把 `web` 换成对应名字即可。
 `dsh plugin add` 会自动把包写入 profile 依赖并追加到 `dsh.profile.bundles`，无需手工编辑。
 
-重启后在 **设置 → 插件 → Jev Effort Selector** 里填 API 地址和 API 密钥即可。
+重启后打开设置页，填 API 地址和 API 密钥即可。设置页的位置随 DSH 版本不同：
 
-卸载：`dsh plugin --profile web remove dsh-plugin-jev-effort-selector`，重启生效；配置保留在 `~/.dsh/settings.yaml` 的 `jev-effort-selector` 段落，可手动删除。
+- **DSH 0.1.5**：**设置 → 插件 → 插件配置**，列表第一张「Jev 推理选择」卡片，点开编辑；
+- **DSH 0.1.7 起**：侧栏 **插件** → 已安装里的 **dsh-plugin-jev-effort-selector**，详情页里直接就是表单。
+
+卸载：`dsh plugin --profile web remove dsh-plugin-jev-effort-selector`，重启生效；配置会保留（0.1.5 在 `~/.dsh/settings.yaml` 的 `jev-effort-selector` 段落，0.1.7 起在 `~/.dsh/profiles/web/cordis.patch.yml` 里 `id: jev-effort-selector` 的条目），可手动删除。
+
+### 从 DSH 0.1.5 升级到 0.1.7
+
+0.1.7 不再使用 `settings.yaml`。它第一次启动时会把 `settings.yaml` 里的各段设置**搬一次**到 profile 的 `cordis.patch.yml`，然后把原文件改名为 `settings.yaml.imported`。
+
+**请先把本插件更新到 0.3.10 或更高，再升级 DSH。** 这样 Jev 的设置会被自动搬过去。反过来的话，搬迁时旧版插件还不认识新的设置方式，Jev 这一段会搬迁失败：原值仍在 `settings.yaml.imported` 里，不会丢，但需要在新的设置页里重新填一次。API 密钥存在凭据服务里，不受影响。
 
 本地开发安装：克隆本仓库后 `pnpm install`，再 `dsh plugin --profile web add link:/绝对路径/dsh-plugin-jev-effort-selector`。
 
@@ -66,7 +76,7 @@ host 半与界面无关；client 半（芯片）声明 `platform: "web"`，仅�
 
 ## 配置
 
-所有配置项都写在 `~/.dsh/settings.yaml` 的 `jev-effort-selector` 段落，也可以直接在设置界面里改：
+所有配置项都可以在设置界面里改，也可以直接编辑文件：DSH 0.1.5 是 `~/.dsh/settings.yaml` 的 `jev-effort-selector` 段落，0.1.7 起是 `~/.dsh/profiles/web/cordis.patch.yml` 里 `id: jev-effort-selector` 条目的 `config:`。字段完全相同：
 
 | 字段 | 默认值 | 说明 |
 |------|--------|------|
@@ -236,7 +246,12 @@ jevTurn 投影（下发浏览器）      每轮恰好动一次，只当触发器
 
 Remote 是手写 JS，没有 typert 生成产物，靠 gateway 的 SRC fallback 被发现；浏览器端走 `connection.rpc.call`，因为 `ctx.remote.*` 只挂载生成的命名空间。参数校验因此退化为「按名字传 JSON」，Host 端自己判类型。
 
-Host 半边声明 settings schema、由设置文档持久化；浏览器半边在 `settings.plugin.item` 上按同一 namespace 注册设置卡片。
+设置的接法分两代，插件运行时自动识别：
+
+- **DSH 0.1.5**：Host 半边向 `settings` 服务注册 schema（落 `settings.yaml`）；浏览器半边经 `settingsScope` 读写，在 `settings.plugin.item` 上注册设置卡片。
+- **DSH 0.1.7 起**：Host 半边导出 Cordis `Config`（字段都标 `.volatile()`，落 profile 的 `cordis.patch.yml`），`apply` 收到的是实时引用；浏览器半边经 `configForms` 读写，在 `plugins.bundle.config` 上注册插件详情页的表单。
+
+浏览器半边不把这两个服务写进 `inject`（Cordis 没有「可选依赖」，写了会在缺它的版本上永远等待），而是各用一个 `ctx.inject` 分支等待，缺的那个分支永远不启动。
 
 → 芯片为什么不持久、本会话开关的边界、SRC 通道是怎么造出来的、为什么不写会话日志：[DESIGN.md §7–10](DESIGN.md#7-芯片的生命周期)
 

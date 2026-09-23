@@ -29,7 +29,8 @@ The decision appears as a chip beside the composer's model selector.
 - 💾 **Survives restarts**: the envelope's memory comes from the session log, not plugin memory. After a restart or a long idle, "go on" still knows what the previous turn was doing
 - ⬆️ **Ties break upward**: below the confidence threshold, the stronger of the two most likely rungs wins — over-thinking costs a few tokens, under-thinking may cost the answer
 - 🛡️ **Silent degradation**: a missing key, network failure, timeout, malformed reply, or unsupported level all leave the caller's effort untouched, without an error or a stall
-- ⚙️ **Settings in `settings.yaml`**: card and file are two doors to the same values; edits apply hot and the plugin carries no storage of its own
+- ⚙️ **Settings kept by DSH**: the settings UI and the file are two doors to the same values; edits apply hot and the plugin carries no storage of its own (DSH 0.1.5 keeps them in `settings.yaml`, 0.1.7+ in the profile's `cordis.patch.yml`)
+- 🔁 **Works on old and new DSH**: one release supports both DSH 0.1.5 and 0.1.7
 - 🏷️ **A chip that means something**: `Jev · High · 87%`, with the reason on hover. It lives only in the process — gone after a restart, back after the next decision, exactly as long as the decision it describes
 - 🔘 **Per-session switch**: click the chip to turn Jev off for this session alone; other sessions are untouched, and a restart returns to the global setting
 - 🔀 **Session-scoped by construction**: decisions, switch, and projections are all keyed by session id; the plugin writes nothing to the session log
@@ -49,9 +50,18 @@ dsh plugin --profile web add github:justhalfbit/dsh-plugin-jev-effort-selector
 `web` is the profile behind `dsh web` (the browser UI); substitute your own profile name (`tui`, …) if you use another.
 `dsh plugin add` writes the package into the profile's dependencies and appends it to `dsh.profile.bundles` for you — no manual editing.
 
-After the restart, open **Settings → Plugins → Jev Effort Selector** and fill in the endpoint and key.
+After the restart, open the settings page and fill in the endpoint and key. Where it lives depends on the DSH version:
 
-Uninstall with `dsh plugin --profile web remove dsh-plugin-jev-effort-selector`, then restart. Your configuration stays in the `jev-effort-selector` section of `~/.dsh/settings.yaml` and can be deleted by hand.
+- **DSH 0.1.5**: **Settings → Plugins → Plugin settings**, the first card ("Jev 推理选择"); click to expand.
+- **DSH 0.1.7+**: sidebar **Plugins** → **dsh-plugin-jev-effort-selector** under Installed; the form is on its detail page.
+
+Uninstall with `dsh plugin --profile web remove dsh-plugin-jev-effort-selector`, then restart. Your configuration stays behind (0.1.5: the `jev-effort-selector` section of `~/.dsh/settings.yaml`; 0.1.7+: the `id: jev-effort-selector` entry of `~/.dsh/profiles/web/cordis.patch.yml`) and can be deleted by hand.
+
+### Upgrading DSH from 0.1.5 to 0.1.7
+
+0.1.7 no longer uses `settings.yaml`. On its first start it moves every section of `settings.yaml` into the profile's `cordis.patch.yml` **once**, then renames the file to `settings.yaml.imported`.
+
+**Update this plugin to 0.3.10 or later first, then upgrade DSH.** Jev's settings then move over automatically. The other way round, the old plugin does not yet speak the new settings mechanism and Jev's section fails to import: the values are still in `settings.yaml.imported`, nothing is lost, but you fill them in once more on the new page. The API key lives in the credentials service and is unaffected.
 
 For local development: clone the repository, run `pnpm install`, then `dsh plugin --profile web add link:/absolute/path/dsh-plugin-jev-effort-selector`.
 
@@ -66,7 +76,7 @@ The host half is interface-agnostic; the client half (the chip) declares `platfo
 
 ## Configuration
 
-Every field lives in the `jev-effort-selector` section of `~/.dsh/settings.yaml`, editable from the settings UI:
+Every field is editable from the settings UI, or directly in the file: on DSH 0.1.5 the `jev-effort-selector` section of `~/.dsh/settings.yaml`, on 0.1.7+ the `config:` of the `id: jev-effort-selector` entry in `~/.dsh/profiles/web/cordis.patch.yml`. The fields are identical:
 
 | Field | Default | Meaning |
 |-------|---------|---------|
@@ -236,7 +246,12 @@ The `jevContext` state lands in `~/.dsh/storages/session_projcache`, including p
 
 The Remote is hand-written JavaScript with no generated typert artifact; the gateway's SRC fallback discovers it. The browser calls it through `connection.rpc.call`, because `ctx.remote.*` mounts generated namespaces only. Parameter checking therefore degrades to "JSON by name", and the host validates types itself.
 
-The host half declares the settings schema and the settings document persists it; the browser half registers the settings card on `settings.plugin.item` under the same namespace.
+Settings are wired two ways, picked at runtime:
+
+- **DSH 0.1.5**: the host half registers its schema with the `settings` service (persisted in `settings.yaml`); the browser half reads and writes through `settingsScope` and registers a card on `settings.plugin.item`.
+- **DSH 0.1.7+**: the host half exports a Cordis `Config` (every field `.volatile()`, persisted in the profile's `cordis.patch.yml`) and `apply` receives live references; the browser half reads and writes through `configForms` and registers the detail-page form on `plugins.bundle.config`.
+
+The browser half lists neither service in `inject` — Cordis has no optional dependency, so listing one would leave the plugin pending forever on the version without it. Each is awaited by its own `ctx.inject` branch instead; the branch whose service is missing simply never runs.
 
 → Why the chip is not persisted, the per-session switch's boundaries, how the SRC channel was built, why nothing is written to the log: [DESIGN.en.md §7–10](DESIGN.en.md#7-the-chips-lifetime)
 

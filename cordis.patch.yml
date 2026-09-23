@@ -1,12 +1,14 @@
 # dsh-plugin-jev-effort-selector bundle patch: one host-plane row.
 #
-# The row's node half (lib/index.js) registers the `jev-effort-selector`
-# settings namespace, the `jevTurn` and `jevContext` session projections, the
+# The row's node half (lib/index.js) declares the plugin's settings (the
+# `jev-effort-selector` namespace on DSH 0.1.5; on 0.1.7+ the exported Config,
+# stored under this row's id — keep the id, old settings.yaml sections are
+# imported by it), the `jevTurn` and `jevContext` session projections, the
 # `agent/pre-step` + `agent/request` listeners that ask Jev which reasoning
 # effort each turn should use, and the `jevEffortSelector` Remote. Its
 # `dsh.client` declaration makes the clientModules scanner serve lib/client.js
 # to the browser, which renders the decision chip beside the composer's model
-# selector and the plugin's settings card.
+# selector and the plugin's settings form.
 - insert:
     - id: jev-effort-selector
       name: 'dsh-plugin-jev-effort-selector'
