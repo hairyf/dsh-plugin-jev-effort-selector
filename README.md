@@ -71,7 +71,7 @@ host 半与界面无关；client 半（芯片）声明 `platform: "web"`，仅�
 | 字段 | 默认值 | 说明 |
 |------|--------|------|
 | `enabled` | `true` | 关掉后完全不干预，保持你手动选的等级 |
-| `apiUrl` | `https://zenmux.ai/api/v1/systemone` | Jev System One API 地址 |
+| `apiUrl` | 空 | Jev System One API 地址，需要自己填写；为空时不调用 Jev，芯片显示「未配置 Jev API 地址」 |
 | `apiKey` | `''` | 字面量密钥逃生口；标了 `role('secret')`，永不随设置外发。常规情况留空 |
 | `apiKeyEnv` | `JEV_API_KEY` | 凭据引用名，API 密钥以此名存放在凭据服务中。设置界面不显示此项，要改名请写 `settings.yaml` |
 | `model` | `jev-latest` | Jev 模型路由 |

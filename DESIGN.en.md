@@ -274,8 +274,9 @@ The old trigger folded `request/header`, which looked like the obvious choice, b
 | Jev timed out | muted `Jev · Medium` | Jev did not answer (timeout); current effort kept |
 | The call failed | muted `Jev · Medium` | Jev call failed; current effort kept |
 | No key | muted `Jev · Medium` | no Jev key configured; current effort kept |
+| No API address | muted `Jev · Medium` | no Jev API address configured; current effort kept |
 
-The last three: see [§11](#11-failure-behaviour).
+The last four: see [§11](#11-failure-behaviour).
 
 The second appears only when the rule **actually changed the outcome** — Jev wanted to go lower and was stopped. If the envelope already led Jev to the same effort on its own, the rule did nothing and the first line shows. Jev's new-topic / continuation reading is still recorded in the decision (`relation`) but no longer shown: either way the effort is Jev's, and the distinction does not matter to the user.
 
@@ -346,13 +347,14 @@ In every case below the plugin **passes the harness's config through untouched**
 
 ### Failures show on the chip
 
-Failures fall into three kinds. Each writes a decision record; the chip goes muted, drops the confidence, and the tooltip names the cause:
+Failures fall into four kinds. Each writes a decision record; the chip goes muted, drops the confidence, and the tooltip names the cause:
 
 | Failure | reason | Covers |
 |---|---|---|
 | timeout | `timeout` | no answer within `timeoutMs` |
 | call failed | `failed` | network failure, non-2xx HTTP, malformed reply, a rung not in the ladder |
 | no key | `no-key` | neither the literal nor the credential reference resolves |
+| no API address | `no-url` | `apiUrl` is empty. It deliberately has no default: which service to connect to is the user's explicit choice |
 
 The effort in the record is **the one actually sent**, not Jev's — Jev chose nothing this turn. Muted means exactly that: this effort was not decided by Jev this turn. The next successful turn restores the normal style.
 

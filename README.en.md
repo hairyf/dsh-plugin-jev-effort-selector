@@ -71,7 +71,7 @@ Every field lives in the `jev-effort-selector` section of `~/.dsh/settings.yaml`
 | Field | Default | Meaning |
 |-------|---------|---------|
 | `enabled` | `true` | Turn off to keep whatever effort you selected by hand |
-| `apiUrl` | `https://zenmux.ai/api/v1/systemone` | Jev System One endpoint |
+| `apiUrl` | empty | Jev System One endpoint; you fill it in. While empty, Jev is never called and the chip says the address is not configured |
 | `apiKey` | `''` | Literal-token escape hatch, declared `role('secret')` so it never leaves the Host. Normally left empty |
 | `apiKeyEnv` | `JEV_API_KEY` | Credential reference the key is stored under. Not shown in the card; rename it in `settings.yaml` if you need to |
 | `model` | `jev-latest` | Jev model route |
