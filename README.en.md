@@ -189,7 +189,9 @@ Over-thinking costs a few tokens; under-thinking may cost the answer.
 
 ## When it fails
 
-A missing key, an unreachable endpoint, a timeout, a malformed answer, a level the model rejects — each one leaves the call with the effort its caller resolved. Nothing is thrown and nothing blocks the turn. If Jev goes down you lose the automatic switching and notice nothing else.
+A missing key, an unreachable endpoint, a timeout, a malformed answer, a level the model rejects — each one leaves the call at the session's current effort. Nothing is thrown and nothing blocks the turn.
+
+Failures are visible: the chip goes muted, drops the confidence, and the tooltip says whether it was a timeout, a failed call, or a missing key. Muted means this effort was not Jev's choice this turn. The next successful turn restores it. → [DESIGN.en.md §11](DESIGN.en.md#11-failure-behaviour)
 
 ## How it works
 

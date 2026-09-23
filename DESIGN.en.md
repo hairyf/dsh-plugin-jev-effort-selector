@@ -264,13 +264,18 @@ Hiding entirely when the global switch is off dates from 0.2.4: the problem then
 
 The old trigger folded `request/header`, which looked like the obvious choice, but the harness writes that event **only when the config changes**. When Jev picks the same rung twice running, the second turn has no header, the chip does not refresh, and it keeps showing the previous turn's confidence and reason. And "go on after an interrupt, keep the effort" is precisely a same-rung case. Replaying a real test session: 9 of 35 turns had no `request/header` — every one of them would have shown a stale chip; with `jevTurn`, every turn triggers exactly once.
 
-**Tooltips** come in three forms, answering "who decided, and did the rule step in":
+**Tooltips** answer "who decided, and did the rule step in":
 
-| Case | Tooltip |
-|---|---|
-| Jev's own call (new topic or continuation alike) | decided by Jev |
-| The rule blocked a downgrade | continuing unfinished work, keeping the previous effort |
-| You picked by hand | manual pick, Jev sat out |
+| Case | Chip | Tooltip |
+|---|---|---|
+| Jev's own call (new topic or continuation alike) | `Jev · High · 87%` | decided by Jev |
+| The rule blocked a downgrade | `Jev · High · 76%` | continuing unfinished work, keeping the previous effort |
+| You picked by hand | `Jev · Low` | manual pick, Jev sat out |
+| Jev timed out | muted `Jev · Medium` | Jev did not answer (timeout); current effort kept |
+| The call failed | muted `Jev · Medium` | Jev call failed; current effort kept |
+| No key | muted `Jev · Medium` | no Jev key configured; current effort kept |
+
+The last three: see [§11](#11-failure-behaviour).
 
 The second appears only when the rule **actually changed the outcome** — Jev wanted to go lower and was stopped. If the envelope already led Jev to the same effort on its own, the rule did nothing and the first line shows. Jev's new-topic / continuation reading is still recorded in the decision (`relation`) but no longer shown: either way the effort is Jev's, and the distinction does not matter to the user.
 
@@ -335,15 +340,34 @@ Conclusion: the data the chip needs is already in the built-in `request/header`;
 
 ## 11. Failure behaviour
 
-In every case below the plugin **passes the harness's config through untouched** — as if it did not exist for that turn, using the session's current effort (what the selector shows right now, usually Jev's last pick). No error, no stall, no retry:
+In every case below the plugin **passes the harness's config through untouched** — as if it did not exist for that turn, using the session's current effort (what the selector shows right now, usually Jev's last pick). No error, no stall.
 
-- missing key
-- network failure or timeout (`timeoutMs`)
-- malformed reply
-- Jev's rung is not in this model's ladder
-- `agent/pre-step` captured no current message (empty batch, plugin-only injections)
+### Failures show on the chip
 
-On failure the turn cache and the chip are not updated; `seenSelections` still is, because it tracks the selector, not Jev's success.
+Failures fall into three kinds. Each writes a decision record; the chip goes muted, drops the confidence, and the tooltip names the cause:
+
+| Failure | reason | Covers |
+|---|---|---|
+| timeout | `timeout` | no answer within `timeoutMs` |
+| call failed | `failed` | network failure, non-2xx HTTP, malformed reply, a rung not in the ladder |
+| no key | `no-key` | neither the literal nor the credential reference resolves |
+
+The effort in the record is **the one actually sent**, not Jev's — Jev chose nothing this turn. Muted means exactly that: this effort was not decided by Jev this turn. The next successful turn restores the normal style.
+
+Through 0.3.2 a failure recorded nothing, so the chip kept showing the last success: the effort happened to be right (the harness stays at the last effort), but the confidence and "decided by Jev" were false, and nothing told you Jev had failed beyond a few seconds' wait.
+
+**A timeout is not a cancelled turn.** Both abort the request to Jev. The plugin's own timer sets a flag when it fires, which tells them apart: a timer abort is recorded as `timeout`; a turn that was itself cancelled records nothing — that turn never happened.
+
+**Failures are cached for the turn too.** An LLM retry re-runs `agent/request` (see [§5](#5-one-decision-per-turn)). Without the cache, every retry after a Jev timeout would wait out `timeoutMs` again. A failure is now recorded for the turn, and retries pass straight through.
+
+### Cases not shown as failures
+
+These are not Jev failing but Jev not applying this turn; the plugin writes no record and the chip stays as it was:
+
+- `agent/pre-step` captured no current message (an empty batch, plugin-only injections — e.g. a background-job notice woke the session)
+- the current model has no reasoning levels, or the adapter cannot describe it right now
+
+`seenSelections` updates regardless, because it tracks the selector, not Jev.
 
 ---
 
@@ -382,3 +406,4 @@ Recorded so they are not walked again.
 - **A `levels` editor**: choosing rungs per model inside the settings card. Judged feasible (the client can read `model.reasoning.efforts`) but not built; `settings.yaml` is the only way today.
 - **Jev call latency**: 1.5–2.4 s serially ahead of every turn's first step. Could overlap with request assembly; not done.
 - **An entry point when the global switch is off**: today the chip disappears entirely, leaving nowhere to see or re-enable it. Could show a muted `Jev off` that points to Settings.
+- **Turns where Jev does not apply**: with no user text, or on a model without reasoning levels, the chip still shows the previous decision (see [§11](#cases-not-shown-as-failures)). The latter could simply hide the chip.
